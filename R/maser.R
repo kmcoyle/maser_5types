@@ -142,7 +142,7 @@ create_GRanges <- function(events, type){
 #' @export
 #' @import methods
 #' @importFrom utils read.table
-maser <- function(path, cond_labels,
+maser <- function(path, num_cond, cond_labels, samps_per_label, sample_ids,
                   ftype = c("ReadsOnTargetAndJunctionCounts", 
                             "JunctionCountOnly",
                             "JCEC", "JC")){
@@ -150,7 +150,7 @@ maser <- function(path, cond_labels,
   ftype <- match.arg(ftype)
   
   rmats_out <- list.files(path, pattern = paste0(ftype, ".txt"),
-                          full.names = FALSE)
+                          full.names = FALSE)[c(1:2,4:5)]
   mats <- new("Maser")
   
   if(ftype == "ReadsOnTargetAndJunctionCounts"){
@@ -163,6 +163,7 @@ maser <- function(path, cond_labels,
     path <- paste0(path, "/")
   }
   
+  
   # For each AS type
   for (f in rmats_out) {
     
@@ -172,46 +173,54 @@ maser <- function(path, cond_labels,
     
     # prepare read counts matrix
     inc1 <- strsplit(events[ , counts.col[1]], ",")
-    inc2 <- strsplit(events[ , counts.col[2]], ",")
     
     reads.inc1 <- suppressWarnings(matrix(as.numeric(unlist(inc1)), 
-                 nrow = length(inc1), ncol = length(inc1[[1]]), byrow = TRUE))
+                                          nrow = length(inc1), ncol = length(inc1[[1]]), byrow = TRUE))
     
-    reads.inc2 <- suppressWarnings(matrix(as.numeric(unlist(inc2)), 
-                 nrow = length(inc2), ncol = length(inc2[[1]]), byrow = TRUE))
-    
-    reads.mat <- cbind(reads.inc1, reads.inc2)
+    reads.mat <- reads.inc1
     rownames(reads.mat) <- events$ID
-    col_names <- c(paste0(cond_labels[1], "_", seq(1, length(inc1[[1]]), 1)),
-                   paste0(cond_labels[2], "_", seq(1, length(inc2[[1]]), 1)) )
+    col_names <- sample_ids
     
     colnames(reads.mat) <- col_names
     slot(mats, paste0(type,"_","counts")) <- reads.mat
     
     # prepare PSI matrix
     inc1 <- strsplit(events[ , "IncLevel1"], ",")
-    inc2 <- strsplit(events[ , "IncLevel2"], ",")
     
     reads.inc1 <- suppressWarnings(matrix(as.numeric(unlist(inc1)), 
-                   nrow = length(inc1), ncol = length(inc1[[1]]), byrow = TRUE))
+                                          nrow = length(inc1), ncol = length(inc1[[1]]), byrow = TRUE))
     
-    reads.inc2 <- suppressWarnings(matrix(as.numeric(unlist(inc2)), 
-                   nrow = length(inc2), ncol = length(inc2[[1]]), byrow = TRUE))
-    
-    reads.mat <- cbind(reads.inc1, reads.inc2)
+    reads.mat <- reads.inc1
     
     rownames(reads.mat) <- events$ID
     colnames(reads.mat) <- col_names
     slot(mats, paste0(type,"_","PSI")) <- reads.mat
     
-    # Number of samples condition 1 and 2
-    mats@n_cond1 <- length(inc1[[1]])
-    mats@n_cond2 <- length(inc2[[1]])
+    # Number of samples per condition
+    
+    
+    
+    
+    mats@n_cond1 <- samps_per_label[1]
+    mats@n_cond2 <- samps_per_label[2]
+    mats@n_cond3 <- samps_per_label[3]
+    mats@n_cond4 <- samps_per_label[4]
+    mats@n_cond5 <- samps_per_label[5]
+    
     mats@conditions <- cond_labels
-
+    
     # rMATS stats
-    slot(mats, paste0(type,"_","stats")) <-
-      events[ , c("ID", "PValue", "FDR", "IncLevelDifference")]
+    read_stats <- if (type %in% c("A3SS","A5SS")) {
+      test_type <- substr(type,1,2)
+      read.delim(paste0(path, test_type,".final_stat.tsv"))
+    } else {
+      read.delim(paste0(path, type,".final_stat.tsv"))
+    }
+    
+    
+    stats_assign <- read_stats[ , c("ID", "PValue", "FDR")] ## "IncLevelDifference"
+    stats_assign$IncLevelDifference <- 0
+    slot(mats, paste0(type,"_","stats")) <-stats_assign
     
     # Genomic ranges of alternative splicing events
     grl <- create_GRanges(events, type)
@@ -221,9 +230,9 @@ maser <- function(path, cond_labels,
     slot(mats, paste0(type,"_","events")) <-
       events[ , c("ID", "GeneID", "geneSymbol")]
     
-
+    
   }
-
+  
   return(mats)
   
 }
@@ -248,9 +257,12 @@ setClass("Maser",
                       MXE_gr = "GRangesList",
                       n_cond1 = "numeric",
                       n_cond2 = "numeric",
+                      n_cond3 = "numeric",
+                      n_cond4 = "numeric",
+                      n_cond5 = "numeric",
                       conditions = "character"
-                      )
-  )
+         )
+)
 
 setValidity2("Maser", function(object){
   if(!length(object@conditions) == 2){
@@ -282,9 +294,16 @@ setMethod("show", "Maser", function(object){
                   " replicates\n")
   line3 <- paste0( "Label=", conditions[2], "     n=", slot(object, "n_cond2"), 
                    " replicates\n\n")
-  line4 <- paste0("Splicing events: \n")
+  line4 <- paste0( "Label=", conditions[3], "     n=", slot(object, "n_cond3"), 
+                   " replicates\n\n")
+  line5 <- paste0( "Label=", conditions[4], "     n=", slot(object, "n_cond4"), 
+                   " replicates\n\n")
+  line6 <- paste0( "Label=", conditions[5], "     n=", slot(object, "n_cond5"), 
+                   " replicates\n\n")
   
-  cat(paste0(line1, line2, line3, line4, line_events))
+  line7 <- paste0("Splicing events: \n")
+  
+  cat(paste0(line1, line2, line3, line4, line5,line6,line7,line_events))
   
   
 })
@@ -320,43 +339,62 @@ setAs("list", "Maser", function(from){
 
 #' @import methods
 create_stats <- function(events, type){
-  
+
   annot <- slot(events, paste0(type,"_","events"))
   stats <- slot(events, paste0(type,"_","stats"))
   PSI <- slot(events, paste0(type,"_","PSI"))
   grl <- slot(events, paste0(type,"_","gr"))
-  
+
   df <- annot
   df <- cbind(df, stats[,2:4])
+
   
   idx.cond1 <- seq(1, events@n_cond1, 1)
   idx.cond2 <- seq(events@n_cond1+1, events@n_cond1+events@n_cond2, 1)
-  
+  idx.cond3 <- seq(events@n_cond1+1, events@n_cond1+events@n_cond2+events@n_cond3, 1)
+  idx.cond4 <- seq(events@n_cond1+1, events@n_cond1+events@n_cond2+events@n_cond3+events@n_cond4, 1)
+  idx.cond5 <- seq(events@n_cond1+1, events@n_cond1+events@n_cond2+events@n_cond3+events@n_cond4+events@n_cond5, 1)
+
   PSI_1 <- vapply(seq_along(PSI[,1]), function(i){
     paste(PSI[i, idx.cond1], collapse = ",")
-    }, character(1)
+  }, character(1)
   )
-  
+
   PSI_2 <- vapply(seq_along(PSI[,1]), function(i){
     paste(PSI[i, idx.cond2], collapse = ",")
   }, character(1)
   )
+
+  PSI_3 <- vapply(seq_along(PSI[,1]), function(i){
+    paste(PSI[i, idx.cond3], collapse = ",")
+  }, character(1)
+  )
   
-  df <- cbind(df, PSI_1 = PSI_1, PSI_2 = PSI_2)
+  PSI_4 <- vapply(seq_along(PSI[,1]), function(i){
+    paste(PSI[i, idx.cond4], collapse = ",")
+  }, character(1)
+  )
   
+  PSI_5 <- vapply(seq_along(PSI[,1]), function(i){
+    paste(PSI[i, idx.cond5], collapse = ",")
+  }, character(1)
+  )
+  
+  df <- cbind(df, PSI_1 = PSI_1, PSI_2 = PSI_2,  PSI_3 = PSI_3,  PSI_4 = PSI_4,  PSI_5 = PSI_5)
+
   exon_df <- data.frame(Chr = as.character(seqnames(grl[[1]])),
                         Strand = as.character(strand(grl[[1]])))
-  
+
   lapply(seq_along(grl), function(i){
     res <- as.data.frame(grl[[i]])
-    coord <- paste0(res$start, "-", res$end)  
+    coord <- paste0(res$start, "-", res$end)
     exon_df <<- cbind(exon_df, Exon = coord)
   })
   colnames(exon_df) <- c("Chr", "Strand", names(grl))
-  
+
   df <- cbind(df, exon_df)
   return(df)
-  
+
 }
 
 #' Retrieve PSI (percent spliced in) values from a maser object.
